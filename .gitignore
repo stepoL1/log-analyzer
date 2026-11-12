@@ -1,2 +1,15 @@
-.venv
-.idea
+# środowisko wirtualne
+.venv/
+
+# cache Pythona i pytesta
+__pycache__/
+.pytest_cache/
+
+# ustawienia PyCharma
+.idea/
+
+# duże wygenerowane logi (odtwarzane poleceniem generate)
+data/logs/
+
+# materiały z zajęć – nie publikujemy
+Python_zaawansowane_materialy*
