@@ -1,0 +1,10 @@
+[project]
+name = "log-analyzer"
+version = "0.1.0"
+description = "Analizator logów serwera WWW"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
