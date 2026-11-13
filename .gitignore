@@ -8,8 +8,8 @@ __pycache__/
 # ustawienia PyCharma
 .idea/
 
-# duże wygenerowane logi (odtwarzane poleceniem generate)
+# duże wygenerowane logi
 data/logs/
 
-# materiały z zajęć – nie publikujemy
+# materiały z zajęć
 Python_zaawansowane_materialy*
