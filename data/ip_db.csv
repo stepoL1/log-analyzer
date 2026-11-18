@@ -1,0 +1,11 @@
+# Fikcyjna lokalna baza geolokalizacji IP (na potrzeby projektu).
+# Format: sieć/CIDR, kod kraju, miasto
+83.0.0.0/11,    PL, Warszawa
+89.64.0.0/12,   PL, Kraków
+31.0.0.0/12,    PL, Gdańsk
+46.112.0.0/12,  PL, Wrocław
+62.0.0.0/12,    DE, Berlin
+81.0.0.0/12,    FR, Paryż
+51.140.0.0/14,  GB, Londyn
+104.16.0.0/12,  US, San Francisco
+13.32.0.0/12,   US, Seattle
