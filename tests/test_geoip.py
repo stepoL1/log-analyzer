@@ -1,5 +1,6 @@
 """Baza IP i wielowątkowy IpResolver."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -46,3 +47,20 @@ def test_retry_recovers_from_transient_failures(db: IpDatabase) -> None:
     # Każda porażka powoduje ponowienie – oprócz ostatniej próby adresu, który się „poddał”.
     assert resolver.requests_made == 40 + resolver.failures - unresolved
     assert unresolved <= 10
+
+
+def test_async_gives_same_result_as_threads(db: IpDatabase) -> None:
+    ips = [f"83.{i}.0.1" for i in range(30)] * 2
+    expected = IpResolver(db, latency=0.001).resolve_threaded(ips, workers=8)
+    resolver = IpResolver(db, latency=0.001)
+    result = asyncio.run(resolver.resolve_async(ips, concurrency=8))
+    assert result == expected
+    assert resolver.requests_made == 30  # duplikaty usunięte, bez Locka nic nie zginęło
+
+
+def test_async_retry_recovers_from_transient_failures(db: IpDatabase) -> None:
+    resolver = IpResolver(db, latency=0, failure_rate=0.3, seed=1)
+    result = asyncio.run(resolver.resolve_async([f"62.0.{i}.1" for i in range(40)]))
+    unresolved = sum(info is None for info in result.values())
+    assert resolver.failures > 0
+    assert resolver.requests_made == 40 + resolver.failures - unresolved

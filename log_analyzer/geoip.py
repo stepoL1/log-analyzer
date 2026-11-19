@@ -4,8 +4,11 @@ Zamiast prawdziwego API używamy lokalnej bazy (``data/ip_db.csv``) i
 **symulujemy** sieć: każde zapytanie czeka ``latency`` sekund (``time.sleep``)
 i może losowo się nie udać. ``time.sleep``, tak jak prawdziwe czekanie
 na gniazdo sieciowe, zwalnia GIL, więc wiele wątków może czekać jednocześnie.
+Dla porównania jest też wariant ``asyncio`` (``resolve_async``): jeden wątek
+i wiele korutyn czekających razem na ``await asyncio.sleep``.
 """
 
+import asyncio
 import ipaddress
 import random
 import threading
@@ -132,3 +135,53 @@ class IpResolver:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             # pool.map zwraca wyniki w tej samej kolejności co wejście, więc zip je dopasuje
             return dict(zip(unique, pool.map(self.lookup, unique)))
+
+    # --- wariant asyncio: jeden wątek, wiele korutyn ---------------------------
+
+    async def lookup_async(self, ip: str, attempts: int = 4, delay: float = 0.005) -> GeoInfo | None:
+        """Asynchroniczna wersja :meth:`lookup` (to samo zadanie, inny model współbieżności).
+
+        Wszystkie korutyny działają w JEDNYM wątku, a przełączenie między nimi
+        następuje tylko w miejscu ``await``. Dlatego ``requests_made += 1`` nie
+        potrzebuje tu blokady – nikt nie przerwie tej instrukcji w połowie.
+        Ponawianie jest napisane ręcznie, bo dekorator ``retry`` używa
+        ``time.sleep``, który zablokowałby całą pętlę zdarzeń.
+        """
+        if not is_valid_ipv4(ip):
+            raise ValueError(f"niepoprawny adres IP: {ip!r}")
+        if ip in self._cache:
+            return self._cache[ip]
+        info = None
+        wait = delay
+        for attempt in range(1, attempts + 1):
+            self.requests_made += 1
+            fail = self._rng.random() < self.failure_rate
+            if fail:
+                self.failures += 1
+            await asyncio.sleep(self.latency)  # oddaje sterowanie innym korutynom
+            if not fail:
+                info = self.database.lookup(ip)
+                break
+            if attempt < attempts:
+                await asyncio.sleep(wait)  # exponential backoff, jak w retry
+                wait *= 2
+        self._cache[ip] = info
+        return info
+
+    async def resolve_async(self, ips: Iterable[str], concurrency: int = 16) -> dict[str, GeoInfo | None]:
+        """Adresy współbieżnie w pętli zdarzeń ``asyncio``.
+
+        ``Semaphore`` ogranicza liczbę jednocześnie otwartych zapytań do
+        concurrency – tak samo jak liczba wątków w :meth:`resolve_threaded`,
+        żeby porównanie w benchmarku było uczciwe.
+        """
+        unique = list(dict.fromkeys(ips))
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def limited(ip: str) -> GeoInfo | None:
+            async with semaphore:
+                return await self.lookup_async(ip)
+
+        # gather uruchamia wszystkie korutyny naraz i zwraca wyniki w kolejności wejścia
+        results = await asyncio.gather(*(limited(ip) for ip in unique))
+        return dict(zip(unique, results))

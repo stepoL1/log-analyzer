@@ -6,6 +6,7 @@ Dwa scenariusze, bo GIL zachowuje się w nich zupełnie inaczej:
 2. **I/O-bound** – geolokalizacja adresów IP z symulowanym opóźnieniem sieci.
 """
 
+import asyncio
 import os
 import platform
 import random
@@ -55,17 +56,21 @@ def cpu_benchmark(paths: list[Path], workers: int, repeats: int) -> list[Measure
 
 
 def io_benchmark(ip_count: int, latency: float, workers: int, repeats: int) -> list[Measurement]:
-    """Geolokalizacja IP sekwencyjnie i w wątkach.
+    """Geolokalizacja IP sekwencyjnie, w wątkach i w ``asyncio``.
 
     Każdy przebieg dostaje nowy ``IpResolver`` – inaczej drugi przebieg
-    trafiałby w cache i nic by nie mierzył.
+    trafiałby w cache i nic by nie mierzył. ``asyncio`` ma ten sam limit
+    współbieżności (*workers*) co pula wątków.
     """
     database = IpDatabase.load()
     ips = random_ips(random.Random(7), ip_count)
     seq = best_time(lambda: IpResolver(database, latency).resolve_sequential(ips), repeats)
     thr = best_time(lambda: IpResolver(database, latency).resolve_threaded(ips, workers), repeats)
+    aio = best_time(lambda: asyncio.run(IpResolver(database, latency).resolve_async(ips, workers)),
+                    repeats)
     return [Measurement("I/O: geolokalizacja IP", "sequential", seq),
-            Measurement("I/O: geolokalizacja IP", "threads", thr)]
+            Measurement("I/O: geolokalizacja IP", "threads", thr),
+            Measurement("I/O: geolokalizacja IP", "asyncio", aio)]
 
 
 def to_markdown(rows: list[Measurement]) -> str:
@@ -75,6 +80,9 @@ def to_markdown(rows: list[Measurement]) -> str:
               "| Scenariusz | Wariant | Czas [s] | Przyspieszenie |\n|---|---|---:|---:|\n")
     return header + "\n".join(f"| {r.scenario} | {r.variant} | {r.seconds:.3f} | {r.speedup:.2f}× |"
                               for r in rows)
+
+
+COLORS = {"sequential": "#8a8f98", "threads": "#4c78a8", "processes": "#f58518", "asyncio": "#54a24b"}
 
 
 def save_chart(rows: list[Measurement], path: Path) -> None:
@@ -88,7 +96,7 @@ def save_chart(rows: list[Measurement], path: Path) -> None:
     for ax, scenario in zip(axes, scenarios):
         part = [r for r in rows if r.scenario == scenario]
         bars = ax.bar([r.variant for r in part], [r.seconds for r in part],
-                      color=["#8a8f98", "#4c78a8", "#f58518"][:len(part)])
+                      color=[COLORS.get(r.variant, "#8a8f98") for r in part])
         ax.bar_label(bars, labels=[f"{r.seconds:.2f} s ({r.speedup:.1f}×)" for r in part])
         ax.set_title(scenario)
         ax.set_ylabel("czas [s] – mniej = lepiej")

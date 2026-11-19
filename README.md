@@ -97,23 +97,30 @@ tests/           testy pytest
 | Procesy | `analyzer.py` → `LogAnalyzer.analyze("processes")` (`ProcessPoolExecutor`) |
 | Pomiar GIL | `benchmark.py` → `cpu_benchmark`, `io_benchmark` |
 | Obsługa błędów | `exceptions.py`; błędne linie zliczane w `ParseReport`; walidacja w `AnalyzerConfig.__post_init__` |
-| Elementy dodatkowe | testy (`tests/`), CLI (`cli.py`, argparse), `logging`, wykres (`results/benchmark.png`) |
+| Porównanie z `asyncio` | `geoip.py` → `IpResolver.resolve_async` (`asyncio.gather` + `Semaphore`), `lookup_async`; wariant w `benchmark.py` → `io_benchmark` |
+| Elementy dodatkowe | testy (`tests/`), CLI (`cli.py`, argparse), `logging`, `asyncio`, wykres (`results/benchmark.png`) |
 
 ## Wyniki pomiarów
 
 Polecenie: `python -m log_analyzer benchmark`.
 - **Test CPU:** 8 plików × 100 000 linii (ok. 85 MB), 8 workerów, najlepszy z 3 przebiegów.
-- **Test I/O:** geolokalizacja 150 adresów IP z opóźnieniem 20 ms na zapytanie, w 16 wątkach.
+- **Test I/O:** geolokalizacja 150 adresów IP z opóźnieniem 20 ms na zapytanie: w 16 wątkach
+  oraz w `asyncio` z limitem 16 jednoczesnych zapytań.
 
 Środowisko: Python 3.12.10 (CPython) z włączonym GIL, 16 rdzeni logicznych, Windows 11.
 
 | Scenariusz | Wariant | Czas [s] | Przyspieszenie |
 |---|---|---:|---:|
-| CPU: parsowanie logów | sequential | 8.713 | 1.00× |
-| CPU: parsowanie logów | threads | 8.969 | 0.97× |
-| CPU: parsowanie logów | processes | 1.711 | 5.09× |
-| I/O: geolokalizacja IP | sequential | 3.049 | 1.00× |
-| I/O: geolokalizacja IP | threads | 0.205 | 14.85× |
+| CPU: parsowanie logów | sequential | 8.627 | 1.00× |
+| CPU: parsowanie logów | threads | 9.502 | 0.91× |
+| CPU: parsowanie logów | processes | 2.147 | 4.02× |
+| I/O: geolokalizacja IP | sequential | 3.053 | 1.00× |
+| I/O: geolokalizacja IP | threads | 0.206 | 14.82× |
+| I/O: geolokalizacja IP | asyncio | 0.221 | 13.83× |
+
+Wyniki wahają się między uruchomieniami (zależą od tego, co jeszcze robi komputer).
+W trzech pomiarach procesy dały od 3,2× do 5,1×, wątki przy CPU 0,91–0,97×,
+a `asyncio` od 10,2× do 13,8×. Wnioski poniżej są takie same dla każdego z tych pomiarów.
 
 ![Wykres](results/benchmark.png)
 
@@ -124,10 +131,10 @@ kod Pythona – niezależnie od liczby rdzeni.
 
 Parsowanie logów to czyste obliczenia (regex, tworzenie obiektów, zliczanie), bez czekania.
 Wątki tylko przekazywały sobie GIL na zmianę, więc praca szła tak samo jak sekwencyjnie.
-Koszt przełączania wątków sprawił, że wyszło nawet minimalnie wolniej (0,97×).
+Koszt przełączania wątków sprawił, że wyszło nawet trochę wolniej (0,91×).
 
 Każdy proces ma własny interpreter i własny GIL, więc pula procesów naprawdę liczyła
-równolegle na wielu rdzeniach i przyspieszyła analizę 5,09×. Pełne 8× było nieosiągalne
+równolegle na wielu rdzeniach i przyspieszyła analizę 4,02×. Pełne 8× było nieosiągalne
 z trzech powodów:
 - start procesów na Windows (*spawn*) wymaga ponownego załadowania interpretera i modułów,
 - wyniki wracają do procesu głównego przez `pickle`,
@@ -135,11 +142,17 @@ z trzech powodów:
 
 Przy geolokalizacji wątki głównie czekają na odpowiedź „sieci” (`time.sleep`), a czekający
 wątek zwalnia GIL. Dzięki temu 16 wątków czekało jednocześnie i 150 zapytań po 20 ms zajęło
-0,2 s zamiast 3 s (14,85×).
+0,2 s zamiast 3 s (14,82×).
+
+`asyncio` osiąga podobny efekt w jednym wątku: korutyny czekają razem na
+`await asyncio.sleep`, a pętla zdarzeń przełącza się między nimi tylko w miejscach `await`.
+Dlatego licznik zapytań nie potrzebuje tu `Lock`. Wyszło nieco wolniej niż wątki (13,83×),
+bo na Windows zegar pętli zdarzeń ma rozdzielczość ok. 15,6 ms, więc `asyncio.sleep(0.02)`
+trwa często dłużej niż 20 ms.
 
 Wniosek: zadania obliczeniowe (CPU-bound) w CPythonie z GIL należy rozdzielać na procesy.
-Do zadań, które głównie czekają (I/O-bound), wystarczą wątki – są lżejsze od procesów
-i współdzielą pamięć, co pozwala na wspólny cache.
+Do zadań, które głównie czekają (I/O-bound), wystarczą wątki albo `asyncio` – są lżejsze
+od procesów i współdzielą pamięć, co pozwala na wspólny cache.
 
 ## Problemy napotkane w trakcie realizacji
 
