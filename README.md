@@ -119,12 +119,27 @@ Polecenie: `python -m log_analyzer benchmark`.
 
 ### Wnioski dotyczące GIL
 
-<!-- TODO: 5–10 zdań własnymi słowami. Do omówienia:
-     1. czym jest GIL,
-     2. dlaczego wątki nie przyspieszyły parsowania (0.97×),
-     3. dlaczego procesy przyspieszyły (5.09×) i czemu nie 8×,
-     4. dlaczego wątki przyspieszyły geolokalizację (14.85×),
-     5. wniosek: kiedy wątki, a kiedy procesy. -->
+GIL to blokada w CPythonie, przez którą w jednym procesie tylko jeden wątek naraz wykonuje
+kod Pythona – niezależnie od liczby rdzeni.
+
+Parsowanie logów to czyste obliczenia (regex, tworzenie obiektów, zliczanie), bez czekania.
+Wątki tylko przekazywały sobie GIL na zmianę, więc praca szła tak samo jak sekwencyjnie.
+Koszt przełączania wątków sprawił, że wyszło nawet minimalnie wolniej (0,97×).
+
+Każdy proces ma własny interpreter i własny GIL, więc pula procesów naprawdę liczyła
+równolegle na wielu rdzeniach i przyspieszyła analizę 5,09×. Pełne 8× było nieosiągalne
+z trzech powodów:
+- start procesów na Windows (*spawn*) wymaga ponownego załadowania interpretera i modułów,
+- wyniki wracają do procesu głównego przez `pickle`,
+- łączenie wyników w procesie głównym odbywa się już sekwencyjnie.
+
+Przy geolokalizacji wątki głównie czekają na odpowiedź „sieci” (`time.sleep`), a czekający
+wątek zwalnia GIL. Dzięki temu 16 wątków czekało jednocześnie i 150 zapytań po 20 ms zajęło
+0,2 s zamiast 3 s (14,85×).
+
+Wniosek: zadania obliczeniowe (CPU-bound) w CPythonie z GIL należy rozdzielać na procesy.
+Do zadań, które głównie czekają (I/O-bound), wystarczą wątki – są lżejsze od procesów
+i współdzielą pamięć, co pozwala na wspólny cache.
 
 ## Problemy napotkane w trakcie realizacji
 
