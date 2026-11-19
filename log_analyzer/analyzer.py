@@ -107,8 +107,8 @@ class LogAnalyzer:
             raise ConfigurationError(f"katalog nie istnieje: {directory}")
         return cls(sorted(directory.glob("*.log")), **kwargs)
 
-    @requires_files  # najpierw sprawdzenie plików...
-    @timer           # ...potem pomiar czasu samej analizy
+    @requires_files  # najpierw sprawdzenie plików
+    @timer           # potem pomiar czasu samej analizy
     def analyze(self, mode: str = "processes") -> FileStats:
         """Analizuje wszystkie pliki i zwraca połączone statystyki."""
         if mode not in MODES:
@@ -126,5 +126,5 @@ class LogAnalyzer:
         if mode == "sequential":
             return FileStats.combine(map(task, self.paths))
         pool_class = ThreadPoolExecutor if mode == "threads" else ProcessPoolExecutor
-        with pool_class(max_workers=workers) as pool:  # with = pula zamknięta po pracy
+        with pool_class(max_workers=workers) as pool:
             return FileStats.combine(pool.map(task, self.paths))
