@@ -80,7 +80,8 @@ class LogAnalyzer:
     ) -> None:
         self.paths = [Path(p) for p in paths]
         self.config = config or AnalyzerConfig()
-        self.workers = workers or self.default_workers()  # przechodzi przez setter!
+        # „is None”, a nie „or”: 0 to fałsz, więc „workers or ...” po cichu zamieniłoby 0 na domyślną wartość
+        self.workers = self.default_workers() if workers is None else workers  # przechodzi przez setter!
 
     @property
     def workers(self) -> int:

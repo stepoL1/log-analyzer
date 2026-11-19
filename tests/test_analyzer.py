@@ -35,6 +35,8 @@ def test_workers_setter_validates(log_file: Path) -> None:
     for bad in (0, -1, 2.5, True):
         with pytest.raises(ValueError):
             analyzer.workers = bad  # type: ignore[assignment]
+        with pytest.raises(ValueError):  # także w konstruktorze – 0 nie może zamienić się w domyślną wartość
+            LogAnalyzer([log_file], workers=bad)  # type: ignore[arg-type]
 
 
 def test_requires_files_decorator(tmp_path: Path) -> None:
